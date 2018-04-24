@@ -4,6 +4,7 @@
 import os
 import re
 import random
+import csv
 
 import seaborn as sns
 from zhon import hanzi
@@ -17,10 +18,12 @@ from smatch import get_amr_line
 
 from preprocess import read_amrz
 
+CHINESE_ENTITIES = os.path.join(os.curdir, "chinese_entities.csv")
 
 DATA_DIR = os.path.join(os.curdir, 'data')
 RESULTS_DIR = os.path.join(os.curdir,'results')
 #path to training AMRs
+GOLD_TXT = os.path.join(DATA_DIR, 'amr_zh_all.txt')
 GOLD_AMRS = os.path.join(DATA_DIR, 'amr_zh_all.txt.amr')
 GOLD_TEST = os.path.join(DATA_DIR, 'amr_zh_all.txt.test.amr')
 REPHRASED_GOLD = os.path.join(DATA_DIR, "amr_zh_all_rephrased.txt.amr")
@@ -40,15 +43,47 @@ SIBLING_BIGRAM_TEST = os.path.join(DATA_DIR,'amr_zh_all.txt.test.amr.sibling_big
 # ::wid x1_最近 x2_， x3_我们 x4_通过 x5_知情 x6_人士 x7_从 x8_衡阳市 x9_殡葬 x10_管理处 x11_财务 x12_部门 x13_复印 x14_出 x15_部分 x16_原始 x17_发票 x18_凭证 x19_11 x20_份 x21_（ x22_共计 x23_有 x24_30余 x25_份 x26_） x27_。 x28_
 """
 
-NE = ["city-district", "country", "country-region", "ethnic-group", "government-organization", "location", "newspaper", "organization", "person"]
+
+zh_ne_dict = dict()
+with open(CHINESE_ENTITIES) as source:
+    reader = csv.DictReader(source)
+    for row in reader:
+        zh_ne_dict[row['Chinese']] = row['English']
+
 def normalize_entity(entity):
     """Rename Chinese named entities to English"""
     if entity in ["coountry", "country"]: return "country"
-    if entity in ["peson"]: return "person"
-    if len(re.findall("[{}]".format(hanzi.characters), entity)) > 0:
-        return "ChineseWord"
+    elif entity in ["peson"]: return "person"
+    elif entity in zh_ne_dict.keys():
+        return zh_ne_dict[entity]
+    #elif len(re.findall("[{}]".format(hanzi.characters), entity)) > 0:
+        #return "OtherChineseWord"
     else:
         return entity
+
+def rephrase_amrs(source_fname, dest_fname):
+    """Rephrase AMRs by normalizing entity names
+    Inputs:
+        source_fname: source AMR file
+        dest_fname: name of file to save to
+    """
+
+    rephrased_ids = set()
+    rephrased_snt = None
+    current_id = None
+    with open(source_fname) as source:
+        with open(dest_fname,'w') as dest:
+            for line in source:
+                if line.startswith("# ::id"):
+                    current_id = line
+                    dest.write(line)
+                elif line.startswith("# ::snt"):
+                    dest.write(line)
+                elif line.startswith("# ::wid"):
+                    dest.write(line)
+                else:  # the amr graph
+                    line = re.sub(r"[{}]+".format(hanzi.characters), lambda x:normalize_entity(x.group()), line)
+                    dest.write(line)
 
 def count_named_entities(amrs):
     """Get all the named entities
@@ -120,23 +155,13 @@ def evaluate_named_entities(gold_amr_file, parsed_amr_file):
         # named_ent(v2c, triples)
         # "v1 is name of v2"
         gold_named_entities = [str(gold_v2c[v1]) for (l,v1,v2) in gold_triples if l == "name"]
-        for ne in gold_named_entities:
-            gold_entity_counts[ne] = gold_entity_counts.get(ne, 0) + 1
 
         gold_renamed_entities = [normalize_entity(e) for e in gold_named_entities]
-        #gold_chinese_entities = [e for e in gold_named_entities if len(re.findall("[{}]".format(hanzi.characters), e)) > 0]
-        #chinese_entities.extend(gold_chinese_entities)
+        for ne in gold_renamed_entities:
+            gold_entity_counts[ne] = gold_entity_counts.get(ne, 0) + 1
 
-        """
-        parsed_graph_index = -1
-        for index, comment in enumerate(parsed_comments):
-            if comment['id'] == gold_id:
-                parsed_graph_index = index
-        if parsed_graph_index != -1:
-        """
         if len(parsed_amrs) >= i:
             parsed_amr = parsed_amrs[i]
-            #parsed_amr = parsed_amrs[parsed_graph_index]
             parsed_amr_graph = AMR.parse_AMR_line(parsed_amr)
             parsed_v2c = {}
             for n, v in zip(parsed_amr_graph.nodes, parsed_amr_graph.node_values):
@@ -146,32 +171,26 @@ def evaluate_named_entities(gold_amr_file, parsed_amr_file):
             parsed_triples.extend([t for t in parsed_amr_graph.get_triples()[2]])
             # named_ent(v2c, triples)
             parsed_named_entities = [str(parsed_v2c[v1]) for (l,v1,v2) in parsed_triples if l == "name"]
-            for ne in parsed_named_entities:
+
+            parsed_renamed_entities = [normalize_entity(e) for e in parsed_named_entities]
+            for ne in parsed_renamed_entities:
                 parsed_entity_counts[ne] = parsed_entity_counts.get(ne, 0) + 1
 
-            #parsed_chinese_entities = [e for e in parsed_named_entities if len(re.findall("[{}]".format(hanzi.characters), e)) > 0]
-            #chinese_entities.extend(parsed_chinese_entities)
-            parsed_renamed_entities = [normalize_entity(e) for e in parsed_named_entities]
             if len(gold_renamed_entities) < len(parsed_renamed_entities):
                 extra_ne_count += 1
             elif len(gold_renamed_entities) > len(parsed_renamed_entities):
                 missing_ne_count += 1
-            elif gold_renamed_entities == parsed_renamed_entities:
-                perfect_match_count += 1
             elif gold_renamed_entities == parsed_renamed_entities and len(gold_renamed_entities) > 0:
                 perfect_match_nonempty_count += 1
+            elif gold_renamed_entities == parsed_renamed_entities:
+                perfect_match_count += 1
             else:
                 ne_mismatch_count += 1
+
             while len(gold_renamed_entities) < len(parsed_renamed_entities):
                 gold_renamed_entities.append("None")
             while len(parsed_renamed_entities) < len(gold_renamed_entities):
                 parsed_renamed_entities.append("None")
-
-            while len(gold_named_entities) < len(parsed_named_entities):
-                gold_named_entities.append("None")
-            while len(parsed_named_entities) < len(gold_named_entities):
-                parsed_named_entities.append("None")
-
 
             #print("Gold: {} Parsed {}".format(gold_renamed_entities, parsed_renamed_entities))
             #print("Gold: {} Parsed {}".format(gold_named_entities, parsed_named_entities))
@@ -179,18 +198,6 @@ def evaluate_named_entities(gold_amr_file, parsed_amr_file):
             all_gold_entities.extend(gold_renamed_entities)
             all_parsed_entities.extend(parsed_renamed_entities)
 
-            #all_gold_entities.extend(gold_named_entities)
-            #all_parsed_entities.extend(parsed_named_entities)
-
-            """
-            gold_named_nodes = [str(gold_v2c[v2]) for (l, v1, v2) in gold_triples if l == "name"]
-            for gold_node in gold_named_nodes:
-                print("Looking for {} in parsed".format(gold_node))
-                parsed_nodes = [v2 for (l, v1, v2) in parsed_triples if v2 == gold_node]
-                if len(parsed_nodes) > 0:
-                    parsed_node = parsed_nodes[0]
-                    node_comparisons.append((gold_node, gold_v2c[gold_node], parsed_v2c[gold_node]))
-            """
     print("Extra NEs: {} Missing NEs: {} Mismatch: {} Perfect match: {} Perfect match nonempty: {}".format(
             extra_ne_count, missing_ne_count, ne_mismatch_count, perfect_match_count, perfect_match_nonempty_count
     ))
@@ -203,24 +210,25 @@ def evaluate_named_entities(gold_amr_file, parsed_amr_file):
         if gold_ne_count != 0 and parsed_ne_count == 0: gold_only_nes.append(ne)
         if gold_ne_count == 0 and parsed_ne_count != 0: parsed_only_nes.append(ne)
 
-        print("{}: Gold {} Parsed {}".format(ne, gold_ne_count, parsed_ne_count))
+        #print("{}: Gold {} Parsed {}".format(ne, gold_ne_count, parsed_ne_count))
+
+    """
     print("Entities only present in gold: {}".format(gold_only_nes))
+    print()
     print("Entities only present in parsed: {}".format(parsed_only_nes))
+    """
 
     #confusion_matrix = ConfusionMatrix(all_gold_entities, all_parsed_entities)
     #confusion_matrix.plot(backend='seaborn')
     #sns.set_palette("husl")
     #plt.show()
 
-        #print(amr_graph.node_values[0])
-        #node_values = amr_graph.node_values
-        #if concept in node_values:
-            #match_amrs.append((comments[i]['id'],comments[i]['snt'],amrs[i]))
-            #possible_ids.append((comments[i]['id'].encode('utf8'),comments[i]['snt'].encode('utf8'),amrs[i].encode('utf8')))
-    #print("Total number of AMRs with '{}': {}".format(concept,len(match_amrs)))
-    #return sorted(match_amrs,key=lambda x: int(x[0].split(' ')[0].split('.')[1])) #sort by id number
-
 if __name__ == "__main__":
+    rephrased_nes = os.path.join(os.curdir, "amr_zh_all_normalized_ne.txt")
+    rephrase_amrs(GOLD_TXT, rephrased_nes)
+    #entity_counts = count_named_entities(read_amrz(GOLD_AMRS)[1])
+    #for ne in sorted(list(entity_counts.keys()), key=lambda x: entity_counts[x], reverse=True):
+        #print("{}: {}".format(ne, entity_counts[ne]))
     #evaluate_named_entities(GOLD_TEST, BASIC_TEST)
     #evaluate_named_entities(GOLD_TEST, SIBLING_TEST)
-    evaluate_named_entities(GOLD_TEST, SIBLING_BIGRAM_TEST)
+    #evaluate_named_entities(GOLD_TEST, SIBLING_BIGRAM_TEST)
