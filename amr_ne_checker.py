@@ -167,14 +167,20 @@ def evaluate_named_entities(gold_amr_file, parsed_amr_file):
             while len(parsed_renamed_entities) < len(gold_renamed_entities):
                 parsed_renamed_entities.append("None")
 
+            while len(gold_named_entities) < len(parsed_named_entities):
+                gold_named_entities.append("None")
+            while len(parsed_named_entities) < len(gold_named_entities):
+                parsed_named_entities.append("None")
+
+
             #print("Gold: {} Parsed {}".format(gold_renamed_entities, parsed_renamed_entities))
-            print("Gold: {} Parsed {}".format(gold_named_entities, parsed_named_entities))
+            #print("Gold: {} Parsed {}".format(gold_named_entities, parsed_named_entities))
 
-            #all_gold_entities.extend(gold_renamed_entities)
-            #all_parsed_entities.extend(parsed_renamed_entities)
+            all_gold_entities.extend(gold_renamed_entities)
+            all_parsed_entities.extend(parsed_renamed_entities)
 
-            all_gold_entities.extend(gold_named_entities)
-            all_parsed_entities.extend(parsed_named_entities)
+            #all_gold_entities.extend(gold_named_entities)
+            #all_parsed_entities.extend(parsed_named_entities)
 
             """
             gold_named_nodes = [str(gold_v2c[v2]) for (l, v1, v2) in gold_triples if l == "name"]
@@ -188,13 +194,19 @@ def evaluate_named_entities(gold_amr_file, parsed_amr_file):
     print("Extra NEs: {} Missing NEs: {} Mismatch: {} Perfect match: {} Perfect match nonempty: {}".format(
             extra_ne_count, missing_ne_count, ne_mismatch_count, perfect_match_count, perfect_match_nonempty_count
     ))
-    """
+    gold_only_nes = list()
+    parsed_only_nes = list()
     all_ne_keys = set(gold_entity_counts.keys()).union(set(parsed_entity_counts.keys()))
-    for ne in all_ne_keys:
+    for ne in sorted(list(all_ne_keys)):
         gold_ne_count = gold_entity_counts.get(ne, 0)
         parsed_ne_count = parsed_entity_counts.get(ne, 0)
+        if gold_ne_count != 0 and parsed_ne_count == 0: gold_only_nes.append(ne)
+        if gold_ne_count == 0 and parsed_ne_count != 0: parsed_only_nes.append(ne)
+
         print("{}: Gold {} Parsed {}".format(ne, gold_ne_count, parsed_ne_count))
-    """
+    print("Entities only present in gold: {}".format(gold_only_nes))
+    print("Entities only present in parsed: {}".format(parsed_only_nes))
+
     #confusion_matrix = ConfusionMatrix(all_gold_entities, all_parsed_entities)
     #confusion_matrix.plot(backend='seaborn')
     #sns.set_palette("husl")
@@ -210,5 +222,5 @@ def evaluate_named_entities(gold_amr_file, parsed_amr_file):
 
 if __name__ == "__main__":
     #evaluate_named_entities(GOLD_TEST, BASIC_TEST)
-    evaluate_named_entities(GOLD_TEST, SIBLING_TEST)
-    #evaluate_named_entities(GOLD_TEST, SIBLING_BIGRAM_TEST)
+    #evaluate_named_entities(GOLD_TEST, SIBLING_TEST)
+    evaluate_named_entities(GOLD_TEST, SIBLING_BIGRAM_TEST)
