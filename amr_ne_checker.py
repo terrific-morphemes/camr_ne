@@ -22,6 +22,7 @@ DATA_DIR = os.path.join(os.curdir, 'data')
 RESULTS_DIR = os.path.join(os.curdir,'results')
 #path to training AMRs
 GOLD_AMRS = os.path.join(DATA_DIR, 'amr_zh_all.txt.amr')
+GOLD_TEST = os.path.join(DATA_DIR, 'amr_zh_all.txt.test.amr')
 REPHRASED_GOLD = os.path.join(DATA_DIR, "amr_zh_all_rephrased.txt.amr")
 GOLD_SMALL = os.path.join(DATA_DIR, 'amr_small.txt')
 
@@ -49,13 +50,43 @@ def normalize_entity(entity):
     else:
         return entity
 
-def get_named_entities(gold_amr_file, parsed_amr_file):
+def count_named_entities(amrs):
     """Get all the named entities
     Inputs:
-        amr_file: file with all the AMRs
+        amrs: list of AMRs
+    Returns:
+        dict with NE as keys and counts as values
+    """
+    entity_counts = dict()
+    for amr in amrs:
+        amr_graph = AMR.parse_AMR_line(amr)
+        # amr_evaluation var2concept
+        v2c = {}
+        for n, v in zip(amr_graph.nodes, amr_graph.node_values):
+            v2c[n] = v
+        # print(v2c)
+        # I don't know why we need these indices but we do
+        triples = [t for t in amr_graph.get_triples()[1]]
+        triples.extend([t for t in amr_graph.get_triples()[2]])
+        #print(triples)
+        # named_ent(v2c, triples)
+        # "v1 is name of v2"
+        named_entities = [str(v2c[v1]) for (l,v1,v2) in triples if l == "name"]
+        for ne in named_entities:
+            entity_counts[ne] = entity_counts.get(ne, 0) + 1
+    return entity_counts
+
+def evaluate_named_entities(gold_amr_file, parsed_amr_file):
+    """Compare NE tagging for gold and parsed AMRs
+    Inputs:
+        gold_amr_file: file with the gold (human-annotated) AMRs
+        parsed_amr_file: file with the parsed (machine-annotated) AMRs
     Returns:
         list of (id, snt, amr) tuples
     """
+    gold_entity_counts = dict()
+    parsed_entity_counts = dict()
+
     extra_ne_count = 0
     missing_ne_count = 0
     ne_mismatch_count = 0
@@ -89,16 +120,23 @@ def get_named_entities(gold_amr_file, parsed_amr_file):
         # named_ent(v2c, triples)
         # "v1 is name of v2"
         gold_named_entities = [str(gold_v2c[v1]) for (l,v1,v2) in gold_triples if l == "name"]
+        for ne in gold_named_entities:
+            gold_entity_counts[ne] = gold_entity_counts.get(ne, 0) + 1
+
         gold_renamed_entities = [normalize_entity(e) for e in gold_named_entities]
         #gold_chinese_entities = [e for e in gold_named_entities if len(re.findall("[{}]".format(hanzi.characters), e)) > 0]
         #chinese_entities.extend(gold_chinese_entities)
 
+        """
         parsed_graph_index = -1
         for index, comment in enumerate(parsed_comments):
             if comment['id'] == gold_id:
                 parsed_graph_index = index
         if parsed_graph_index != -1:
-            parsed_amr = gold_amrs[parsed_graph_index]
+        """
+        if len(parsed_amrs) >= i:
+            parsed_amr = parsed_amrs[i]
+            #parsed_amr = parsed_amrs[parsed_graph_index]
             parsed_amr_graph = AMR.parse_AMR_line(parsed_amr)
             parsed_v2c = {}
             for n, v in zip(parsed_amr_graph.nodes, parsed_amr_graph.node_values):
@@ -108,6 +146,9 @@ def get_named_entities(gold_amr_file, parsed_amr_file):
             parsed_triples.extend([t for t in parsed_amr_graph.get_triples()[2]])
             # named_ent(v2c, triples)
             parsed_named_entities = [str(parsed_v2c[v1]) for (l,v1,v2) in parsed_triples if l == "name"]
+            for ne in parsed_named_entities:
+                parsed_entity_counts[ne] = parsed_entity_counts.get(ne, 0) + 1
+
             #parsed_chinese_entities = [e for e in parsed_named_entities if len(re.findall("[{}]".format(hanzi.characters), e)) > 0]
             #chinese_entities.extend(parsed_chinese_entities)
             parsed_renamed_entities = [normalize_entity(e) for e in parsed_named_entities]
@@ -127,8 +168,13 @@ def get_named_entities(gold_amr_file, parsed_amr_file):
                 parsed_renamed_entities.append("None")
 
             #print("Gold: {} Parsed {}".format(gold_renamed_entities, parsed_renamed_entities))
-            all_gold_entities.extend(gold_renamed_entities)
-            all_parsed_entities.extend(parsed_renamed_entities)
+            print("Gold: {} Parsed {}".format(gold_named_entities, parsed_named_entities))
+
+            #all_gold_entities.extend(gold_renamed_entities)
+            #all_parsed_entities.extend(parsed_renamed_entities)
+
+            all_gold_entities.extend(gold_named_entities)
+            all_parsed_entities.extend(parsed_named_entities)
 
             """
             gold_named_nodes = [str(gold_v2c[v2]) for (l, v1, v2) in gold_triples if l == "name"]
@@ -142,7 +188,14 @@ def get_named_entities(gold_amr_file, parsed_amr_file):
     print("Extra NEs: {} Missing NEs: {} Mismatch: {} Perfect match: {} Perfect match nonempty: {}".format(
             extra_ne_count, missing_ne_count, ne_mismatch_count, perfect_match_count, perfect_match_nonempty_count
     ))
-    confusion_matrix = ConfusionMatrix(all_gold_entities, all_parsed_entities)
+    """
+    all_ne_keys = set(gold_entity_counts.keys()).union(set(parsed_entity_counts.keys()))
+    for ne in all_ne_keys:
+        gold_ne_count = gold_entity_counts.get(ne, 0)
+        parsed_ne_count = parsed_entity_counts.get(ne, 0)
+        print("{}: Gold {} Parsed {}".format(ne, gold_ne_count, parsed_ne_count))
+    """
+    #confusion_matrix = ConfusionMatrix(all_gold_entities, all_parsed_entities)
     #confusion_matrix.plot(backend='seaborn')
     #sns.set_palette("husl")
     #plt.show()
@@ -156,6 +209,6 @@ def get_named_entities(gold_amr_file, parsed_amr_file):
     #return sorted(match_amrs,key=lambda x: int(x[0].split(' ')[0].split('.')[1])) #sort by id number
 
 if __name__ == "__main__":
-    get_named_entities(GOLD_AMRS, BASIC_TEST)
-    get_named_entities(GOLD_AMRS, SIBLING_TEST)
-    get_named_entities(GOLD_AMRS, SIBLING_BIGRAM_TEST)
+    #evaluate_named_entities(GOLD_TEST, BASIC_TEST)
+    evaluate_named_entities(GOLD_TEST, SIBLING_TEST)
+    #evaluate_named_entities(GOLD_TEST, SIBLING_BIGRAM_TEST)
